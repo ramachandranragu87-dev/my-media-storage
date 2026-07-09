@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Media Storage</title>
+
+<style>
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:Arial,Helvetica,sans-serif;
+}
+
+body{
+background:#f5f7fb;
+padding:20px;
+}
+
+.container{
+max-width:1200px;
+margin:auto;
+}
+
+h1{
+text-align:center;
+margin-bottom:20px;
+color:#333;
+}
+
+.upload-box{
+border:3px dashed #007bff;
+border-radius:15px;
+padding:40px;
+text-align:center;
+background:white;
+cursor:pointer;
+transition:.3s;
+}
+
+.upload-box:hover{
+background:#eef6ff;
+}
+
+.upload-box h2{
+color:#007bff;
+margin-bottom:10px;
+}
+
+.upload-box p{
+color:#666;
+}
+
+input{
+display:none;
+}
+
+.gallery{
+margin-top:30px;
+display:grid;
+grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
+gap:20px;
+}
+
+.card{
+background:white;
+border-radius:10px;
+overflow:hidden;
+box-shadow:0 5px 15px rgba(0,0,0,.15);
+display:flex;
+flex-direction:column;
+justify-content:space-between;
+}
+
+/* Media handling */
+.card img, .card video{
+width:100%;
+height:200px;
+object-fit:cover;
+display:block;
+background:#000;
+}
+
+.delete{
+width:100%;
+padding:10px;
+background:#ff4444;
+color:white;
+border:none;
+cursor:pointer;
+font-size:15px;
+}
+
+.delete:hover{
+background:#d90000;
+}
+
+.top-buttons{
+margin-top:20px;
+display:flex;
+justify-content:center;
+gap:10px;
+flex-wrap:wrap;
+}
+
+button{
+padding:12px 20px;
+border:none;
+border-radius:8px;
+cursor:pointer;
+font-size:15px;
+}
+
+.clear{
+background:red;
+color:white;
+}
+
+.counter{
+margin-top:15px;
+text-align:center;
+font-size:18px;
+font-weight:bold;
+color:#333;
+}
+</style>
+
+</head>
+<body>
+
+<div class="container">
+
+<h1>📷 My Personal Media Storage</h1>
+
+<div class="upload-box" id="dropArea">
+<h2>Paste / Drag Media Here</h2>
+<p>Ctrl + V • Drag & Drop Images/Videos • Click to Select</p>
+<!-- Updated accept attribute to allow video files -->
+<input type="file" id="fileInput" multiple accept="image/*,video/*">
+</div>
+
+<div class="top-buttons">
+<button class="clear" onclick="clearMedia()">Clear All</button>
+</div>
+
+<div class="counter">
+Stored Items :
+<span id="count">0</span>
+</div>
+
+<div class="gallery" id="gallery"></div>
+
+</div>
+
+<script>
+let db;
+const gallery = document.getElementById("gallery");
+const count = document.getElementById("count");
+
+// Initialize IndexedDB instead of localStorage
+const request = indexedDB.open("MediaStorageDB", 1);
+
+request.onupgradeneeded = function(e) {
+  db = e.target.result;
+  if (!db.objectStoreNames.contains("media")) {
+    // Creating a store with an auto-incrementing id field
+    db.objectStoreStore = db.createObjectStore("media", { keyPath: "id", autoIncrement: true });
+  }
+};
+
+request.onsuccess = function(e) {
+  db = e.target.result;
+  display();
+};
+
+request.onerror = function() {
+  console.error("IndexedDB failed to open.");
+};
+
+// Main function to write files to IndexedDB
+function addMediaToDB(file) {
+  const transaction = db.transaction(["media"], "readwrite");
+  const store = transaction.objectStore("media");
+  
+  // We save the raw File object. IndexedDB handles Blobs natively.
+  const record = {
+    file: file,
+    type: file.type,
+    name: file.name,
+    timestamp: Date.now()
+  };
+  
+  store.add(record);
+  
+  transaction.oncomplete = function() {
+    display();
+  };
+}
+
+// Read and display files
+function display() {
+  if (!db) return;
+  
+  gallery.innerHTML = "";
+  const transaction = db.transaction(["media"], "readonly");
+  const store = transaction.objectStore("media");
+  const getAllRequest = store.getAll();
+  
+  getAllRequest.onsuccess = function() {
+    const items = getAllRequest.result;
+    count.innerHTML = items.length;
+    
+    items.forEach((item) => {
+      let card = document.createElement("div");
+      card.className = "card";
+      
+      // Generate a temporal URL directly from the saved Blob/File data
+      const mediaUrl = URL.createObjectURL(item.file);
+      
+      let mediaTag = '';
+      if (item.type.startsWith("video/")) {
+        // Controls allowed so user can play/pause video elements
+        mediaTag = `<video src="${mediaUrl}" controls></video>`;
+      } else {
+        mediaTag = `<img src="${mediaUrl}" alt="${item.name}">`;
+      }
+      
+      card.innerHTML = `
+        ${mediaTag}
+        <button class="delete" onclick="removeMedia(${item.id})">Delete</button>
+      `;
+      
+      gallery.appendChild(card);
+    });
+  };
+}
+
+function removeMedia(id) {
+  const transaction = db.transaction(["media"], "readwrite");
+  const store = transaction.objectStore("media");
+  store.delete(id);
+  
+  transaction.oncomplete = function() {
+    display();
+  };
+}
+
+function clearMedia() {
+  if (confirm("Delete all stored media files?")) {
+    const transaction = db.transaction(["media"], "readwrite");
+    const store = transaction.objectStore("media");
+    store.clear();
+    
+    transaction.oncomplete = function() {
+      display();
+    };
+  }
+}
+
+// Handling native file selector changes
+document.getElementById("fileInput").addEventListener("change", (e) => {
+  Array.from(e.target.files).forEach(file => {
+    addMediaToDB(file);
+  });
+});
+
+const drop = document.getElementById("dropArea");
+drop.onclick = () => document.getElementById("fileInput").click();
+
+drop.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  drop.style.background = "#d8ecff";
+});
+
+drop.addEventListener("dragleave", () => {
+  drop.style.background = "white";
+});
+
+drop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  drop.style.background = "white";
+  
+  Array.from(e.dataTransfer.files).forEach(file => {
+    if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
+      addMediaToDB(file);
+    }
+  });
+});
+
+// Handling clipboard pastes (mainly snapshots/images)
+document.addEventListener("paste", (e) => {
+  const items = e.clipboardData.items;
+  for (let item of items) {
+    if (item.type.indexOf("image") !== -1 || item.type.indexOf("video") !== -1) {
+      let file = item.getAsFile();
+      if (file) {
+        addMediaToDB(file);
+      }
+    }
+  }
+});
+</script>
+
+</body>
+</html>
